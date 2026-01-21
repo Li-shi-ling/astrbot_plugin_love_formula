@@ -1,12 +1,13 @@
 import time
 from datetime import date
-from typing import Optional
+from typing import Optional, cast
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.engine import CursorResult
 from sqlalchemy import and_
+from sqlalchemy.sql.elements import ColumnElement
 
 from ..models.tables import LoveDailyRef, MessageOwnerIndex, UserCooldown
 from .database import DBManager
@@ -293,7 +294,24 @@ class LoveRepo:
             today = date.today()
             now = time.time()
 
-            session.add_all(msg_indexes)
+            # 过滤已存在的 message_id
+            if msg_indexes:
+                msg_ids = [m.message_id for m in msg_indexes]
+
+                message_id_col = cast(ColumnElement[str], MessageOwnerIndex.message_id)
+
+                stmt = select(MessageOwnerIndex.message_id).where(
+                    message_id_col.in_(msg_ids)
+                )
+                result = await session.execute(stmt)
+                existed_ids = {row[0] for row in result.all()}
+
+                msg_indexes = [
+                    m for m in msg_indexes if m.message_id not in existed_ids
+                ]
+
+            if msg_indexes:
+                session.add_all(msg_indexes)
 
             all_users = {
                 *msg_stats.keys(),
